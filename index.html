@@ -76,6 +76,10 @@ canvas { display: block; width: 100%; height: 110px; }
 .result { text-align: center; gap: 6px; }
 .result .avg { font-family: var(--font-num); font-size: 15px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .result .avg b { font-size: 28px; color: var(--ink); }
+.graph { position: relative; min-height: 110px; display: grid; }
+.graph canvas { grid-area: 1 / 1; }
+.cap { text-align: center; font-size: 13px; font-weight: 600; letter-spacing: .04em; color: var(--muted); margin-bottom: -6px; }
+.after { margin: -6px 0 0; text-align: center; font-size: 16px; font-weight: 600; color: var(--accent); }
 .result .msg { margin: 0; font-size: 19px; font-weight: 700; line-height: 1.45; text-wrap: balance; color: var(--ink); }
 
 details { font-size: 13px; color: var(--muted); }
@@ -91,6 +95,7 @@ summary { cursor: pointer; }
   <p class="lead">버튼을 누르고 10초 동안 편하게 읽어보세요.</p>
 
   <section class="panel" aria-label="현재 음량">
+    <div class="cap" id="valCap" hidden>10초 평균</div>
     <div class="big"><span class="value" id="val">--</span><span class="unit">dB</span></div>
     <div>
       <div class="scale">
@@ -100,7 +105,9 @@ summary { cursor: pointer; }
       </div>
       <div class="ticks" id="ticks"></div>
     </div>
-    <canvas id="hist" aria-label="10초 음량 그래프"></canvas>
+    <div class="graph">
+      <canvas id="hist" aria-label="10초 음량 그래프"></canvas>
+    </div>
   </section>
 
   <div class="actions">
@@ -109,9 +116,9 @@ summary { cursor: pointer; }
   </div>
 
   <section class="panel result" id="result" hidden aria-live="polite">
-    <div class="avg">10초 평균 <b id="avg">--</b> dB</div>
     <p class="msg" id="msg"></p>
   </section>
+  <p class="after" id="after" hidden>충분히 테스트 해봤다면 낭독을 시작해보세요!</p>
 
   <details>
     <summary>보정 설정</summary>
@@ -128,12 +135,12 @@ summary { cursor: pointer; }
   const $ = id => document.getElementById(id);
   const TEST_SEC = 10;
   const MIN_DB = 40, MAX_DB = 100;          // 막대·그래프 범위
-  const QUIET_BELOW = 66, LOUD_FROM = 70;   // 판정 기준
+  const QUIET_BELOW = 45, LOUD_FROM = 70;   // 판정 기준
 
   const MESSAGES = {
-    quiet: '조금 더 크게 말하면 선명하게 녹음 돼요',
-    ok: '이 정도 음량은 바깥에 들리지 않아서 괜찮아요',
-    loud: '이정도 음량은 매니저 자리까지 들려요'
+    quiet: '더 크게 말해야 선명하게 녹음 돼요.',
+    ok: '이 정도 음량이면 적당해요.',
+    loud: '이 정도 음량은 매니저 자리까지 들려요'
   };
 
   let stream = null, ctx = null, analyser = null, buf = null, rafId = 0;
@@ -169,6 +176,8 @@ summary { cursor: pointer; }
     }
     setBtn(true, '준비 중…');
     $('result').hidden = true;
+    $('after').hidden = true;
+    $('valCap').hidden = true;
     hint('');
     try {
       stream = await navigator.mediaDevices.getUserMedia({
@@ -232,11 +241,13 @@ summary { cursor: pointer; }
     const avg = 10 * Math.log10(energySum / Math.max(1, frames));
     release();
     const kind = avg >= LOUD_FROM ? 'loud' : avg >= QUIET_BELOW ? 'ok' : 'quiet';
-    $('avg').textContent = avg.toFixed(1);
+    $('val').textContent = avg.toFixed(1);
+    $('fill').style.width = (pos(avg) * 100) + '%';
+    $('valCap').hidden = false;
     $('msg').textContent = MESSAGES[kind];
-    $('result').className = 'panel result ' + kind;
     $('result').hidden = false;
-    hint('마이크를 놓아 두었어요. 이제 음성 메모에서 녹음을 시작하세요.');
+    $('after').hidden = false;
+    hint('');
     setBtn(false, '다시 측정');
   }
 
@@ -279,7 +290,7 @@ summary { cursor: pointer; }
     const x = t => padL + (t / TEST_SEC) * (w - padL - 2);
 
     g.font = '10px ' + v('--font-num'); g.fillStyle = v('--muted'); g.strokeStyle = v('--line'); g.lineWidth = 1;
-    [50, 66, 70, 90].forEach(d => {
+    [40, 60, 80, 100].forEach(d => {
       g.beginPath(); g.moveTo(padL, Math.round(y(d)) + .5); g.lineTo(w, Math.round(y(d)) + .5); g.stroke();
       g.fillText(d, 0, y(d) + 3);
     });
