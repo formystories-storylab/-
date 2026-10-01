@@ -1,0 +1,394 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#101418">
+<title>소리 레벨 미터</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;600&family=IBM+Plex+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: one narrow instrument column that fits a Split View pane — readout, scale, history, status, controls, log */
+:root {
+  --bg: #eef1f3;
+  --panel: #ffffff;
+  --ink: #15191d;
+  --muted: #5d6a74;
+  --line: #d3dade;
+  --accent: #0b6e8a;
+  --ok: #1f8a4c;
+  --warn: #b86b00;
+  --bad: #c2362b;
+  --font-body: "IBM Plex Sans KR", -apple-system, "Apple SD Gothic Neo", sans-serif;
+  --font-num: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #101418; --panel: #182026; --ink: #e7ecef; --muted: #8d9aa3;
+    --line: #2a353d; --accent: #4fb6d3; --ok: #46c27a; --warn: #e5a03a; --bad: #ef6b5f;
+    color-scheme: dark;
+  }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--bg); color: var(--ink);
+  font: 15px/1.5 var(--font-body);
+  padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+}
+main { max-width: 560px; margin: 0 auto; display: grid; gap: 14px; }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px; }
+.label { font-size: 12px; letter-spacing: .06em; color: var(--muted); }
+
+/* Readout */
+.readout { display: grid; gap: 10px; }
+.big { display: flex; align-items: baseline; gap: 8px; font-family: var(--font-num); font-variant-numeric: tabular-nums; }
+.big .value { font-size: clamp(56px, 18vw, 96px); font-weight: 600; line-height: 1; letter-spacing: -.03em; }
+.big .unit { font-size: 18px; color: var(--muted); }
+.sub { display: flex; flex-wrap: wrap; gap: 4px 16px; font-family: var(--font-num); font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.sub b { color: var(--ink); font-weight: 600; }
+
+/* Scale bar */
+.scale { position: relative; height: 22px; border-radius: 4px; background: var(--line); overflow: hidden; }
+.scale .fill { position: absolute; inset: 0 auto 0 0; width: 0; background: var(--ok); transition: width .06s linear; }
+.scale .peak { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--ink); left: 0; }
+.ticks { position: relative; height: 16px; font-family: var(--font-num); font-size: 11px; color: var(--muted); }
+.ticks span { position: absolute; transform: translateX(-50%); }
+.ticks span:first-child { transform: none; }
+.ticks span:last-child { transform: translateX(-100%); }
+
+canvas { display: block; width: 100%; height: 90px; }
+
+/* Status */
+.status { display: flex; flex-wrap: wrap; gap: 8px; }
+.pill { font-size: 13px; font-weight: 600; padding: 4px 10px; border-radius: 999px; border: 1px solid currentColor; color: var(--muted); }
+.pill.on { color: var(--ok); }
+.pill.off { color: var(--bad); }
+.pill.idle { color: var(--muted); }
+
+/* Controls */
+.controls { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+button {
+  font: 600 15px var(--font-body); border-radius: 8px; padding: 10px 18px; cursor: pointer;
+  border: 1px solid var(--line); background: var(--panel); color: var(--ink);
+}
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--panel); }
+button.stop { background: var(--bad); border-color: var(--bad); color: var(--panel); }
+button:focus-visible, input:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.cal { display: flex; align-items: center; gap: 6px; margin-left: auto; font-size: 13px; color: var(--muted); }
+.cal input { width: 64px; font: 15px var(--font-num); padding: 6px 8px; border-radius: 6px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); }
+
+/* Log */
+.log { list-style: none; margin: 0; padding: 0; max-height: 260px; overflow-y: auto; font-size: 13px; }
+.log li { display: grid; grid-template-columns: auto 1fr; gap: 10px; padding: 6px 0; border-top: 1px solid var(--line); }
+.log li:first-child { border-top: 0; }
+.log time { font-family: var(--font-num); color: var(--muted); font-variant-numeric: tabular-nums; }
+.log .msg { min-width: 0; overflow-wrap: anywhere; }
+.log li.imp .msg { color: var(--bad); font-weight: 600; }
+.head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.head button { padding: 4px 10px; font-size: 13px; }
+.note { font-size: 13px; color: var(--muted); margin: 0; }
+.error { color: var(--bad); font-weight: 600; }
+@media (prefers-reduced-motion: reduce) { .scale .fill { transition: none; } }
+</style>
+</head>
+<body>
+<main>
+  <section class="panel readout" aria-live="off">
+    <div class="label">현재 소리 레벨 (추정)</div>
+    <div class="big"><span class="value" id="val">--</span><span class="unit">dB</span></div>
+    <div class="sub">
+      <span>원시값 <b id="fs">--</b> dBFS</span>
+      <span>피크 <b id="pk">--</b></span>
+      <span>최대 <b id="mx">--</b></span>
+      <span>평균 <b id="avg">--</b></span>
+    </div>
+    <div>
+      <div class="scale"><div class="fill" id="fill"></div><div class="peak" id="peak"></div></div>
+      <div class="ticks" id="ticks"></div>
+    </div>
+    <canvas id="hist" aria-label="최근 30초 레벨 그래프"></canvas>
+  </section>
+
+  <section class="panel">
+    <div class="status">
+      <span class="pill idle" id="pMic">마이크</span>
+      <span class="pill idle" id="pAudio">오디오 처리</span>
+      <span class="pill idle" id="pSig">신호</span>
+    </div>
+  </section>
+
+  <section class="controls">
+    <button class="primary" id="btn" type="button">측정 시작</button>
+    <label class="cal" for="cal">보정 +<input id="cal" type="number" inputmode="numeric" step="1" value="100"> dB</label>
+  </section>
+
+  <section class="panel">
+    <div class="head"><span class="label">이벤트 로그</span><button id="clear" type="button">지우기</button></div>
+    <ul class="log" id="log"></ul>
+  </section>
+
+  <p class="note">표시값은 마이크 원시값(dBFS)에 보정값을 더한 근사치이며, 실제 소음계와 다를 수 있습니다. 소음계나 다른 측정 앱과 비교해 보정값을 맞추면 정확도가 올라갑니다.</p>
+</main>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const MIN_DB = 30, MAX_DB = 110;           // 화면 눈금 범위 (추정 dB)
+  const HIST_SEC = 30;
+
+  let stream = null, track = null, ctx = null, analyser = null, src = null, buf = null;
+  let wantsRunning = false, rafId = 0, watchId = 0, wakeLock = null;
+  let shown = -160, peak = -160, maxDb = -Infinity, sumEnergy = 0, nSamples = 0;
+  let silentSince = 0, silentFlag = false, lastCtxTime = 0, stallFlag = false;
+  let history = [];   // {t, db}
+
+  // ---------- 보정값 (이 기기에만 저장) ----------
+  const calInput = $('cal');
+  try { const v = localStorage.getItem('cal'); if (v !== null) calInput.value = v; } catch (e) {}
+  calInput.addEventListener('change', () => { try { localStorage.setItem('cal', calInput.value); } catch (e) {} });
+  const cal = () => Number(calInput.value) || 0;
+
+  // ---------- 눈금 ----------
+  const ticks = $('ticks');
+  for (let d = MIN_DB; d <= MAX_DB; d += 20) {
+    const s = document.createElement('span');
+    s.textContent = d;
+    s.style.left = ((d - MIN_DB) / (MAX_DB - MIN_DB) * 100) + '%';
+    ticks.appendChild(s);
+  }
+
+  // ---------- 로그 ----------
+  function log(text, imp = false) {
+    const li = document.createElement('li');
+    if (imp) li.className = 'imp';
+    const t = document.createElement('time');
+    t.textContent = new Date().toLocaleTimeString('ko-KR', { hour12: false });
+    const m = document.createElement('span');
+    m.className = 'msg'; m.textContent = text;
+    li.append(t, m);
+    const ul = $('log');
+    ul.prepend(li);
+    while (ul.children.length > 200) ul.lastChild.remove();
+  }
+  $('clear').onclick = () => { $('log').innerHTML = ''; };
+
+  function pill(id, state, text) {
+    const el = $(id);
+    el.className = 'pill ' + state;
+    if (text) el.textContent = text;
+  }
+
+  // ---------- 시작 / 정지 ----------
+  $('btn').onclick = () => wantsRunning ? stopAll('사용자 정지') : startAll('사용자 시작');
+
+  async function startAll(reason) {
+    wantsRunning = true;
+    setButton();
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      log('이 브라우저에서는 마이크를 쓸 수 없습니다. https 주소로 열었는지 확인해 주세요.', true);
+      wantsRunning = false; setButton(); return;
+    }
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false }
+      });
+    } catch (e) {
+      log('마이크 열기 실패: ' + e.name + (e.name === 'NotAllowedError' ? ' (권한 거부됨 — 설정 > Safari > 마이크 확인)' : ''), true);
+      wantsRunning = false; setButton(); pill('pMic', 'off'); return;
+    }
+    track = stream.getAudioTracks()[0];
+    track.onmute = () => { pill('pMic', 'off', '마이크 음소거됨'); log('⚠️ 마이크 트랙 음소거 (다른 앱이 마이크를 가져갔을 가능성)', true); };
+    track.onunmute = () => { pill('pMic', 'on', '마이크'); log('마이크 트랙 음소거 해제'); };
+    track.onended = () => {
+      pill('pMic', 'off', '마이크 종료됨');
+      log('⚠️ 마이크 트랙 종료됨', true);
+      if (wantsRunning) setTimeout(() => restart('트랙 종료 후 재시도'), 800);
+    };
+
+    ctx = new (window.AudioContext || window.webkitAudioContext)();
+    ctx.onstatechange = () => {
+      const st = ctx ? ctx.state : 'closed';
+      log('오디오 처리 상태: ' + st, st !== 'running');
+      pill('pAudio', st === 'running' ? 'on' : 'off', st === 'running' ? '오디오 처리' : '오디오 ' + st);
+      if (wantsRunning && ctx && (st === 'suspended' || st === 'interrupted')) {
+        ctx.resume().then(() => log('오디오 처리 재개 시도 성공')).catch(err => log('재개 실패: ' + err.name, true));
+      }
+    };
+    src = ctx.createMediaStreamSource(stream);
+    analyser = ctx.createAnalyser();
+    analyser.fftSize = 2048;
+    buf = new Float32Array(analyser.fftSize);
+    src.connect(analyser);
+    if (ctx.state !== 'running') { try { await ctx.resume(); } catch (e) {} }
+
+    pill('pMic', track.muted ? 'off' : 'on', track.muted ? '마이크 음소거됨' : '마이크');
+    pill('pAudio', ctx.state === 'running' ? 'on' : 'off', ctx.state === 'running' ? '오디오 처리' : '오디오 ' + ctx.state);
+    log(`측정 시작 (${reason}) · ${ctx.sampleRate}Hz · ${track.label || '기본 마이크'}`);
+
+    lastCtxTime = ctx.currentTime; stallFlag = false; silentFlag = false; silentSince = 0;
+    cancelAnimationFrame(rafId); rafId = requestAnimationFrame(loop);
+    clearInterval(watchId); watchId = setInterval(watchdog, 500);
+    requestWake();
+  }
+
+  function teardown() {
+    cancelAnimationFrame(rafId); clearInterval(watchId);
+    if (stream) stream.getTracks().forEach(t => { t.onended = null; t.stop(); });
+    if (ctx) { ctx.onstatechange = null; ctx.close().catch(() => {}); }
+    stream = track = ctx = analyser = src = null;
+  }
+
+  function stopAll(reason) {
+    wantsRunning = false;
+    teardown();
+    releaseWake();
+    setButton();
+    pill('pMic', 'idle', '마이크'); pill('pAudio', 'idle', '오디오 처리'); pill('pSig', 'idle', '신호');
+    $('val').textContent = '--'; $('fs').textContent = '--';
+    log(reason);
+  }
+
+  async function restart(reason) {
+    if (!wantsRunning) return;
+    teardown();
+    await startAll(reason);
+  }
+
+  function setButton() {
+    const b = $('btn');
+    b.textContent = wantsRunning ? '정지' : '측정 시작';
+    b.className = wantsRunning ? 'stop' : 'primary';
+  }
+
+  // ---------- 측정 루프 ----------
+  function loop() {
+    rafId = requestAnimationFrame(loop);
+    if (!analyser) return;
+    analyser.getFloatTimeDomainData(buf);
+    let sum = 0;
+    for (let i = 0; i < buf.length; i++) sum += buf[i] * buf[i];
+    const rms = Math.sqrt(sum / buf.length);
+    const fs = rms > 0 ? 20 * Math.log10(rms) : -160;
+
+    // 올라갈 땐 빠르게, 내려갈 땐 천천히
+    shown = fs > shown ? fs : shown * 0.88 + fs * 0.12;
+    peak = Math.max(peak - 0.25, fs);
+
+    const now = performance.now();
+    // 완전 무음(입력 차단 의심)
+    if (fs < -120) {
+      if (!silentSince) silentSince = now;
+      if (!silentFlag && now - silentSince > 1000) {
+        silentFlag = true;
+        log('⚠️ 입력이 완전 무음 — 다른 앱이 마이크를 막았을 가능성', true);
+      }
+    } else {
+      silentSince = 0;
+      if (silentFlag) { silentFlag = false; log('무음 상태 해제 — 정상 신호 수신'); }
+    }
+
+    const est = shown + cal();
+    if (fs > -120) {
+      maxDb = Math.max(maxDb, fs + cal());
+      sumEnergy += Math.pow(10, (fs + cal()) / 10); nSamples++;
+    }
+    render(fs, est);
+
+    if (!history.length || now - history[history.length - 1].t > 100) {
+      history.push({ t: now, db: fs < -120 ? null : fs + cal() });
+      while (history.length && now - history[0].t > HIST_SEC * 1000) history.shift();
+      drawHistory(now);
+    }
+  }
+
+  function render(fs, est) {
+    const alive = !silentFlag && !stallFlag;
+    $('val').textContent = alive ? est.toFixed(1) : '--';
+    $('fs').textContent = fs > -159 ? fs.toFixed(1) : '--';
+    $('pk').textContent = alive ? (peak + cal()).toFixed(1) : '--';
+    $('mx').textContent = isFinite(maxDb) ? maxDb.toFixed(1) : '--';
+    $('avg').textContent = nSamples ? (10 * Math.log10(sumEnergy / nSamples)).toFixed(1) : '--';
+    const frac = v => Math.max(0, Math.min(1, (v - MIN_DB) / (MAX_DB - MIN_DB)));
+    const f = alive ? frac(est) : 0;
+    const fill = $('fill');
+    fill.style.width = (f * 100) + '%';
+    fill.style.background = est >= 85 ? 'var(--bad)' : est >= 70 ? 'var(--warn)' : 'var(--ok)';
+    $('peak').style.left = `calc(${frac(peak + cal()) * 100}% - 1px)`;
+    pill('pSig', alive ? 'on' : 'off', silentFlag ? '무음 데이터!' : stallFlag ? '데이터 멈춤' : '신호 정상');
+  }
+
+  // 오디오 처리 시계가 멈췄는지 감시 (Safari가 조용히 멈추는 경우)
+  function watchdog() {
+    if (!ctx) return;
+    const t = ctx.currentTime;
+    if (t === lastCtxTime) {
+      if (!stallFlag) { stallFlag = true; log('⚠️ 오디오 처리가 멈춤 (시간이 흐르지 않음) · 상태=' + ctx.state, true); }
+      if (wantsRunning) ctx.resume().catch(() => {});
+    } else if (stallFlag) {
+      stallFlag = false; log('오디오 처리 다시 흐름');
+    }
+    lastCtxTime = t;
+  }
+
+  // ---------- 히스토리 그래프 ----------
+  const cv = $('hist');
+  function drawHistory(now) {
+    const dpr = window.devicePixelRatio || 1;
+    const w = cv.clientWidth, h = cv.clientHeight;
+    if (cv.width !== Math.round(w * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); }
+    const g = cv.getContext('2d');
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.clearRect(0, 0, w, h);
+    const css = getComputedStyle(document.documentElement);
+    const lineC = css.getPropertyValue('--line').trim();
+    const accent = css.getPropertyValue('--accent').trim();
+    const muted = css.getPropertyValue('--muted').trim();
+    const y = d => h - 4 - (Math.max(MIN_DB, Math.min(MAX_DB, d)) - MIN_DB) / (MAX_DB - MIN_DB) * (h - 8);
+    const x = t => w - (now - t) / (HIST_SEC * 1000) * w;
+    g.strokeStyle = lineC; g.lineWidth = 1; g.fillStyle = muted; g.font = '10px ' + css.getPropertyValue('--font-num');
+    [50, 70, 90].forEach(d => {
+      g.beginPath(); g.moveTo(0, y(d) + .5); g.lineTo(w, y(d) + .5); g.stroke();
+      g.fillText(d, 2, y(d) - 2);
+    });
+    g.strokeStyle = accent; g.lineWidth = 1.6; g.beginPath();
+    let pen = false;
+    history.forEach(p => {
+      if (p.db === null) { pen = false; return; }
+      pen ? g.lineTo(x(p.t), y(p.db)) : g.moveTo(x(p.t), y(p.db));
+      pen = true;
+    });
+    g.stroke();
+    g.fillStyle = muted; g.textAlign = 'right'; g.fillText('최근 30초', w - 2, 10); g.textAlign = 'left';
+  }
+
+  // ---------- 화면 꺼짐 방지 ----------
+  async function requestWake() {
+    try { if ('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen'); } catch (e) {}
+  }
+  function releaseWake() { try { wakeLock && wakeLock.release(); } catch (e) {} wakeLock = null; }
+
+  // ---------- 페이지 상태 ----------
+  document.addEventListener('visibilitychange', () => {
+    log('페이지 ' + (document.hidden ? '숨겨짐' : '보임'), document.hidden);
+    if (!document.hidden && wantsRunning) {
+      requestWake();
+      if (ctx && ctx.state !== 'running') ctx.resume().catch(() => {});
+      if (!track || track.readyState === 'ended') restart('페이지 복귀 후 재시도');
+    }
+  });
+  window.addEventListener('pagehide', () => log('페이지 떠남', true));
+  window.addEventListener('focus', () => log('창 포커스 받음'));
+  window.addEventListener('blur', () => log('창 포커스 잃음'));
+  if (navigator.mediaDevices) navigator.mediaDevices.addEventListener?.('devicechange', () => log('오디오 장치 변경'));
+
+  if (!window.isSecureContext) log('https가 아닌 주소라 마이크가 막힐 수 있습니다.', true);
+  log('준비됨 · "측정 시작"을 누르세요');
+  drawHistory(performance.now());
+})();
+</script>
+</body>
+</html>
